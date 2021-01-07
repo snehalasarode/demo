@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+     k8s-app: grafana
+  replicas: 1 
+  template:
+    metadata:
+      labels:
+        k8s-app: grafana
+#      annotations:
+#        backup.velero.io/backup-volumes: 'grafana-storage dashboards-volume dashboard-provider datasources-provider'
+#added for deployment on system-node
+    spec:
+#      affinity:
+#        nodeAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            nodeSelectorTerms:
+#            - matchExpressions:
+#              - key: dedicated
+#                operator: In
+#                values:
+#                - system-node
+#      tolerations:
+#      - key: "dedicated"
+#        operator: "Equal"
+#        value: "system-node"
+#        effect: "NoExecute"
+      initContainers:
+      - name: copy-ro-scripts
+        image: busybox
+        command: ['sh', '-c', 'chmod 0777 /var/lib/grafana']
+        volumeMounts:
+        - mountPath: /var/lib/grafana
+          name: grafana-storage
+          readOnly: false
+#      nodeSelector:
+#        system: node
+      containers:
+      - name: grafana
+        image: grafana/grafana:7.0.3
+        ports:
+        - containerPort: 3000
+          protocol: TCP
+        volumeMounts:
+        - name: dashboards-volume
+          mountPath: /var/lib/grafana/dashboards
+        - name: dashboard-provider
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: datasources-provider
+          mountPath: /etc/grafana/provisioning/datasources
+        - mountPath: /var/lib/grafana
+          name: grafana-storage
+#        - mountPath: /etc/ssl/certs
+#          name: postgres-cert
+        - mountPath: /etc/ssl/certs
+          name: client-cert
+        - mountPath: /etc/ssl/key
+          name: client-key
+        - mountPath: /etc/ssl/ca
+          name: client-ca
+        env:
+        - name: GF_USERS_AUTO_ASSIGN_ORG_ID
+          valueFrom:
+            configMapKeyRef:
+              name: grafana-orgs
+              key: orgId
+
+        - name: GF_SERVER_HTTP_PORT
+          value: "3000"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-pwd
+              key: password
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-piechart-panel,devopsprodigy-kubegraf-app"
+        - name: GF_SERVER_ROOT_URL
+          value: "https://grafana.huawei.dev.acf-cr.atos.net"
+        - name: GF_AUTH_GENERIC_OAUTH_NAME
+          value: "UAA"
+        - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+          value: "True"
+        - name: GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP
+          value: "True"
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+          value: "cfcr-control-plane-uaa"
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+          value: "cfcr-control-plane-uaa"
+        - name: GF_AUTH_GENERIC_OAUTH_SCOPES
+          value: "openid profile email offline_access"
+        - name: GF_AUTH_GENERIC_OAUTH_AUTH_URL
+          value: "https://uaa.huawei.dev.acf-cr.atos.net/oauth/authorize"
+        - name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL
+          value: "https://uaa.huawei.dev.acf-cr.atos.net/oauth/token"
+        - name: GF_AUTH_GENERIC_OAUTH_API_URL
+          value: "https://uaa.huawei.dev.acf-cr.atos.net/userinfo"
+        - name: GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE
+          value: "false"
+        - name: GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CERT
+          value: "/etc/ssl/certs/client.crt"
+        - name: GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_KEY
+          value: "/etc/ssl/key/client.key"
+        - name: GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA
+          value: "/etc/ssl/ca/client_ca.crt"
+        - name: GF_SERVER_CERT_FILE
+          value: "/var/lib/grafana/ssl/grafana.crt"
+        - name: GF_SERVER_CERT_KEY
+          value: "/var/lib/grafana/ssl/grafana.key"
+#        - name: GF_DATABASE_TYPE
+#          value: "postgres"
+#        - name: GF_DATABASE_HOST
+#          value: "postgres.service.cfcr-client.internal"               #"10.20.2.10:5432"
+#        - name: GF_DATABASE_NAME
+#          value: "grafana"
+#        - name: GF_DATABASE_USER
+#          value: "grafana"
+#        - name: GF_DATABASE_PASSWORD
+#          value: "grafana123"
+#        - name: GF_DATABASE_SSL_MODE
+#          value: "require"
+#        - name: GF_DATABASE_CA_CERT_PATH
+#          value: "/etc/ssl/certs/pg_ca_cert.crt"
+#      nodeSelector:
+#        system: node
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-volume-claim
+#        emptyDir: {}
+      - name: dashboards-volume
+        configMap:
+          name: grafana-dashs
+      - name: dashboard-provider
+        configMap:
+          name: grafana-dash-provider
+          items:
+            - key: providers.yaml
+              path: providers.yaml
+      - name: datasources-provider
+        configMap:
+          name: grafana-datasources-provider
+          items:
+            - key: providers.yaml
+              path: providers.yaml
+#      - name: postgres-cert
+#        configMap:
+#          name: postgres-configmap
+      - name: client-cert
+        configMap:
+          name: client-cert-configmap
+      - name: client-key
+        configMap:
+          name: client-key-configmap
+      - name: client-ca
+        configMap:
+          name: client-ca-configmap
+
